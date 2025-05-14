@@ -78,28 +78,59 @@ st.markdown("""
 
 # Function to extract data from nested JSON in string format
 def convert(text):
-    L = []
-    for i in ast.literal_eval(text):
-        L.append(i['name'])
-    return L
+    try:
+        if isinstance(text, str) and text.strip():
+            data = ast.literal_eval(text)
+            L = []
+            for i in data:
+                if isinstance(i, dict) and 'name' in i:
+                    L.append(i['name'])
+            return L
+        return []
+    except (ValueError, SyntaxError) as e:
+        print(f"Error parsing JSON: {e}")
+        return []
+    except Exception as e:
+        print(f"Unexpected error in convert: {e}")
+        return []
 
 # Function to convert 3 cast members
 def convert3(text):
-    L = []
-    counter = 0
-    for i in ast.literal_eval(text):
-        if counter < 3:
-            L.append(i['name'])
-        counter += 1
-    return L
+    try:
+        if isinstance(text, str) and text.strip():
+            data = ast.literal_eval(text)
+            L = []
+            counter = 0
+            for i in data:
+                if counter < 3 and isinstance(i, dict) and 'name' in i:
+                    L.append(i['name'])
+                    counter += 1
+            return L
+        return []
+    except (ValueError, SyntaxError) as e:
+        print(f"Error parsing JSON: {e}")
+        return []
+    except Exception as e:
+        print(f"Unexpected error in convert3: {e}")
+        return []
 
 # Function to get director name from crew
 def fetch_director(text):
-    L = []
-    for i in ast.literal_eval(text):
-        if i['job'] == 'Director':
-            L.append(i['name'])
-    return L
+    try:
+        if isinstance(text, str) and text.strip():
+            data = ast.literal_eval(text)
+            L = []
+            for i in data:
+                if isinstance(i, dict) and 'job' in i and i['job'] == 'Director' and 'name' in i:
+                    L.append(i['name'])
+            return L
+        return []
+    except (ValueError, SyntaxError) as e:
+        print(f"Error parsing JSON: {e}")
+        return []
+    except Exception as e:
+        print(f"Unexpected error in fetch_director: {e}")
+        return []
 
 # Function to get movie poster from TMDB API
 @st.cache_data(ttl=3600*24)  # Cache poster URLs for 24 hours
@@ -137,52 +168,61 @@ def fetch_poster(movie_id):
 # Load data function
 @st.cache_data
 def load_data():
-    # Read movies and credits data
-    movies = pd.read_csv('tmdb_5000_movies.csv')
-    credits = pd.read_csv('tmdb_5000_credits.csv')
-    
-    # Merge data
-    movies = movies.merge(credits, on='title')
-    
-    # Select important columns
-    movies = movies[['movie_id', 'title', 'overview', 'genres', 'keywords', 'cast', 'crew']]
-    
-    # Drop rows with missing data
-    movies.dropna(inplace=True)
-    
-    # Convert string representations to lists
-    movies['genres'] = movies['genres'].apply(convert)
-    movies['keywords'] = movies['keywords'].apply(convert)
-    movies['cast'] = movies['cast'].apply(convert3)
-    movies['crew'] = movies['crew'].apply(fetch_director)
-    
-    # Create tags by combining features
-    movies['overview'] = movies['overview'].apply(lambda x: x.split())
-    movies['genres'] = movies['genres'].apply(lambda x: [i.replace(" ", "") for i in x])
-    movies['keywords'] = movies['keywords'].apply(lambda x: [i.replace(" ", "") for i in x])
-    movies['cast'] = movies['cast'].apply(lambda x: [i.replace(" ", "") for i in x])
-    movies['crew'] = movies['crew'].apply(lambda x: [i.replace(" ", "") for i in x])
-    
-    # Combine all features into tags
-    movies['tags'] = movies['overview'] + movies['genres'] + movies['keywords'] + movies['cast'] + movies['crew']
-    
-    # Create a new dataframe with only needed columns - use copy() to avoid SettingWithCopyWarning
-    new_df = movies[['movie_id', 'title', 'tags']].copy()
-    
-    # Convert tags list to string
-    new_df['tags'] = new_df['tags'].apply(lambda x: " ".join(x))
-    
-    # Convert tags to lowercase
-    new_df['tags'] = new_df['tags'].apply(lambda x: x.lower())
-    
-    # Create count vector features
-    cv = CountVectorizer(max_features=5000, stop_words='english')
-    vectors = cv.fit_transform(new_df['tags']).toarray()
-    
-    # Calculate similarity scores
-    similarity = cosine_similarity(vectors)
-    
-    return new_df, similarity
+    try:
+        # Read movies and credits data
+        movies = pd.read_csv('tmdb_5000_movies.csv')
+        credits = pd.read_csv('tmdb_5000_credits.csv')
+        
+        # Merge data
+        movies = movies.merge(credits, on='title')
+        
+        # Select important columns
+        movies = movies[['movie_id', 'title', 'overview', 'genres', 'keywords', 'cast', 'crew']]
+        
+        # Convert NaN values to empty strings for text fields
+        for col in ['overview', 'genres', 'keywords', 'cast', 'crew']:
+            movies[col] = movies[col].fillna('[]' if col != 'overview' else '')
+        
+        # Drop rows with missing data after filling
+        movies = movies.dropna(subset=['movie_id', 'title']).reset_index(drop=True)
+        
+        # Convert string representations to lists
+        movies['genres'] = movies['genres'].apply(convert)
+        movies['keywords'] = movies['keywords'].apply(convert)
+        movies['cast'] = movies['cast'].apply(convert3)
+        movies['crew'] = movies['crew'].apply(fetch_director)
+        
+        # Create tags by combining features
+        movies['overview'] = movies['overview'].apply(lambda x: x.split() if isinstance(x, str) else [])
+        movies['genres'] = movies['genres'].apply(lambda x: [i.replace(" ", "") for i in x] if isinstance(x, list) else [])
+        movies['keywords'] = movies['keywords'].apply(lambda x: [i.replace(" ", "") for i in x] if isinstance(x, list) else [])
+        movies['cast'] = movies['cast'].apply(lambda x: [i.replace(" ", "") for i in x] if isinstance(x, list) else [])
+        movies['crew'] = movies['crew'].apply(lambda x: [i.replace(" ", "") for i in x] if isinstance(x, list) else [])
+        
+        # Combine all features into tags
+        movies['tags'] = movies['overview'] + movies['genres'] + movies['keywords'] + movies['cast'] + movies['crew']
+        
+        # Create a new dataframe with only needed columns - use copy() to avoid SettingWithCopyWarning
+        new_df = movies[['movie_id', 'title', 'tags']].copy()
+        
+        # Convert tags list to string
+        new_df['tags'] = new_df['tags'].apply(lambda x: " ".join(x) if isinstance(x, list) else "")
+        
+        # Convert tags to lowercase
+        new_df['tags'] = new_df['tags'].apply(lambda x: x.lower() if isinstance(x, str) else "")
+        
+        # Create count vector features
+        cv = CountVectorizer(max_features=5000, stop_words='english')
+        vectors = cv.fit_transform(new_df['tags']).toarray()
+        
+        # Calculate similarity scores
+        similarity = cosine_similarity(vectors)
+        
+        return new_df, similarity
+    except Exception as e:
+        st.error(f"Error in data loading: {e}")
+        # Create empty dataframes as fallback
+        return pd.DataFrame(columns=['movie_id', 'title', 'tags']), np.array([[0]])
 
 # Movie recommendation function
 def recommend(movie, data, similarity_matrix):
@@ -243,81 +283,93 @@ def load_saved_data():
 st.markdown("<h1 class='main-header'>🎬 Movie Recommendation System</h1>", unsafe_allow_html=True)
 
 # Load data
-with st.spinner('Loading movie data... This might take a moment.'):
-    # First try to load saved data
-    movie_data, similarity, data_loaded = load_saved_data()
-    
-    # If saved data doesn't exist, process it
-    if not data_loaded:
-        movie_data, similarity = load_data()
+try:
+    with st.spinner('Loading movie data... This might take a moment.'):
+        # First try to load saved data
+        movie_data, similarity, data_loaded = load_saved_data()
         
-        # Add a button to save the processed data
-        if st.button("Save processed data for faster loading"):
-            save_data(movie_data, similarity)
-
-# Get the list of all movies
-movie_list = movie_data['title'].tolist()
-movie_list.sort()  # Sort alphabetically for easier selection
-
-# Create a centered container for the search box
-st.markdown("<div class='search-container'>", unsafe_allow_html=True)
-
-# Add a subtitle
-st.markdown("<h3 style='text-align: center; margin-bottom: 20px;'>Find movie recommendations based on your favorite film</h3>", unsafe_allow_html=True)
-
-# Create the search box
-selected_movie = st.selectbox(
-    "Type or select a movie you like",
-    movie_list
-)
-
-# Add a button to get recommendations
-if st.button('Show Recommendations', key='recommend_button'):
-    # Close the container div
-    st.markdown("</div>", unsafe_allow_html=True)
+        # If saved data doesn't exist, process it
+        if not data_loaded:
+            movie_data, similarity = load_data()
+            
+            # Add a button to save the processed data
+            if st.button("Save processed data for faster loading"):
+                save_data(movie_data, similarity)
     
-    with st.spinner('Finding movies you might like...'):
-        recommendations = recommend(selected_movie, movie_data, similarity)
+    # Verify we have valid data
+    if len(movie_data) == 0:
+        st.error("Could not load movie data. Please try refreshing the page.")
+        st.stop()
+    
+    # Get the list of all movies
+    movie_list = movie_data['title'].tolist()
+    movie_list.sort()  # Sort alphabetically for easier selection
+    
+    # Create a centered container for the search box
+    st.markdown("<div class='search-container'>", unsafe_allow_html=True)
+    
+    # Add a subtitle
+    st.markdown("<h3 style='text-align: center; margin-bottom: 20px;'>Find movie recommendations based on your favorite film</h3>", unsafe_allow_html=True)
+    
+    # Create the search box
+    selected_movie = st.selectbox(
+        "Type or select a movie you like",
+        movie_list
+    )
+    
+    # Add a button to get recommendations
+    if st.button('Show Recommendations', key='recommend_button'):
+        # Close the container div
+        st.markdown("</div>", unsafe_allow_html=True)
         
-        if recommendations:
-            st.markdown("<div class='recommendation-section'>", unsafe_allow_html=True)
-            st.subheader(f"Top 5 movies similar to '{selected_movie}'")
-            
-            # Display selected movie poster
-            selected_movie_id = movie_data[movie_data['title'] == selected_movie]['movie_id'].values[0]
-            selected_movie_poster = fetch_poster(selected_movie_id)
-            
-            cols = st.columns([1, 4])
-            with cols[0]:
-                st.markdown(f"""
-                <div style="text-align: center;">
-                    <img src="{selected_movie_poster}" width="200" style="border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
-                    <p style="margin-top: 8px; font-weight: bold;">Your selected movie</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with cols[1]:
-                st.write("### Based on this movie, you might also like:")
-                # Create a container for recommendations to apply custom styling
-                rec_container = st.container()
-                rec_cols = rec_container.columns(5)
+        with st.spinner('Finding movies you might like...'):
+            try:
+                recommendations = recommend(selected_movie, movie_data, similarity)
                 
-                for i, movie in enumerate(recommendations):
-                    with rec_cols[i]:
-                        # Apply custom CSS class to each image for better styling
+                if recommendations:
+                    st.markdown("<div class='recommendation-section'>", unsafe_allow_html=True)
+                    st.subheader(f"Top 5 movies similar to '{selected_movie}'")
+                    
+                    # Display selected movie poster
+                    selected_movie_id = movie_data[movie_data['title'] == selected_movie]['movie_id'].values[0]
+                    selected_movie_poster = fetch_poster(selected_movie_id)
+                    
+                    cols = st.columns([1, 4])
+                    with cols[0]:
                         st.markdown(f"""
                         <div style="text-align: center;">
-                            <img src="{movie['poster']}" width="150" style="border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
-                            <p style="margin-top: 8px; font-weight: bold;">{movie['title']}</p>
+                            <img src="{selected_movie_poster}" width="200" style="border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
+                            <p style="margin-top: 8px; font-weight: bold;">Your selected movie</p>
                         </div>
                         """, unsafe_allow_html=True)
-            
-            st.markdown("</div>", unsafe_allow_html=True)
-        else:
-            st.error("Sorry, we couldn't find recommendations for this movie. Please try another one.")
-else:
-    # Close the container div if button isn't clicked
-    st.markdown("</div>", unsafe_allow_html=True)
+                    
+                    with cols[1]:
+                        st.write("### Based on this movie, you might also like:")
+                        # Create a container for recommendations to apply custom styling
+                        rec_container = st.container()
+                        rec_cols = rec_container.columns(5)
+                        
+                        for i, movie in enumerate(recommendations):
+                            with rec_cols[i]:
+                                # Apply custom CSS class to each image for better styling
+                                st.markdown(f"""
+                                <div style="text-align: center;">
+                                    <img src="{movie['poster']}" width="150" style="border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);">
+                                    <p style="margin-top: 8px; font-weight: bold;">{movie['title']}</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                    
+                    st.markdown("</div>", unsafe_allow_html=True)
+                else:
+                    st.error("Sorry, we couldn't find recommendations for this movie. Please try another one.")
+            except Exception as e:
+                st.error(f"Error finding recommendations: {e}")
+    else:
+        # Close the container div if button isn't clicked
+        st.markdown("</div>", unsafe_allow_html=True)
+except Exception as e:
+    st.error(f"An unexpected error occurred: {e}")
+    st.write("Please refresh the page and try again.")
 
 # Add footer
 st.markdown("""
